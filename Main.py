@@ -12,6 +12,7 @@ HALF_TILE = int(TILE_SIZE / 2)
 TILES_X = SCREEN_WIDTH / TILE_SIZE
 TILES_Y = SCREEN_HEIGHT / TILE_SIZE
 OUTLINE_SIZE = int(TILE_SIZE / 25 + 1)
+OUTLINE_COLOR = (20, 20, 20)
 SELECTION_COLOR = (225, 220, 50)
 BASE_MOVEMENT_COST = 5
 
@@ -24,9 +25,19 @@ DOWN = 3
 # Pygame
 pygame.init()
 screen = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT])
-font = pygame.font.Font('freesansbold.ttf', 24)
+font = 'freesansbold.ttf'
 pygame.display.set_caption("0.0")
 clock = pygame.time.Clock()
+
+
+# Pygame self-made functions
+def fitTextSize(font, rect, text, inc=4):
+    for i in range(8, 1024, inc):
+        testFont = pygame.font.Font(font, i)
+        if testFont.size(text)[0] > rect[2] or testFont.size(text)[1] > rect[3]:
+            return pygame.font.Font(font, i - inc)
+    return pygame.font.Font(font, inc)
+
 
 # Assets and asset constants
 PLAYER_IMAGE = pygame.transform.smoothscale(pygame.image.load("Player.png"),
@@ -67,7 +78,10 @@ class Object:
         if selected is not None and selected is not self:
             selected.deselect()
 
-        self.selected = not self.selected
+        if self.selected:
+            self.deselect()
+        else:
+            self.select()
 
         if not self.selected:
             selected = None
@@ -92,20 +106,30 @@ class Object:
         return self.selected
 
 
+class Item(Object):
+
+    def __init__(self, wg):
+        super().__init__()
+        self.weight = wg
+
+
 class Character(Object):
 
     def __init__(self, pos, mvmt=30):
         super().__init__()
         self.movement = mvmt + BASE_MOVEMENT_COST
+        self.spellCaster = False
         self.tile = pos
+        self.items = []
+
+    def isSpellCaster(self):
+        return self.spellCaster
 
     def select(self):
         super().select()
-        self.highlight()
 
     def deselect(self):
         super().deselect()
-        self.unHighlight()
 
     def moveTo(self, tile):
         self.tile = tile
@@ -185,7 +209,7 @@ class Tree(Object):
         tileCenterX = x + HALF_TILE
         pygame.draw.rect(screen, self.baseColor, (int(tileCenterX - self.bWidth), y + int(TILE_SIZE * 0.8),
                                                   int(self.bWidth * 2), self.bHeight))
-        pygame.draw.polygon(screen, self.leavesColor, ((tileCenterX, y + TILE_SIZE * 0.0375),
+        pygame.draw.polygon(screen, self.leavesColor, ((tileCenterX, int(y + TILE_SIZE * 0.0375)),
                                                        (tileCenterX - self.lWidth, y + int(TILE_SIZE * 0.8)),
                                                        (tileCenterX + self.lWidth, y + int(TILE_SIZE * 0.8))))
 
@@ -209,7 +233,6 @@ class Tile(Object):
         self.difficulty = terrain.difficulty
         self.cover = None
         self.outline = outline
-        self.highlightedColor = pygame.Color(255, 125, 125, a=5)
         self.highlighted = False
         self.selectedItem = 0
 
@@ -288,15 +311,15 @@ class Tile(Object):
         y_cords = int(SCREEN_CENTER_Y - HALF_TILE + y * TILE_SIZE)
 
         pygame.draw.rect(screen, self.color, (x_cords, y_cords, TILE_SIZE, TILE_SIZE))
+
         if self.highlighted:
-            # pygame.draw.rect(screen, self.highlightedColor, (x_cords, y_cords, TILE_SIZE, TILE_SIZE))
             screen.blit(HIGHLIGHTED_TILE, (x_cords, y_cords))
 
         if outline:
             if self.selected:
                 pygame.draw.rect(screen, SELECTION_COLOR, (x_cords, y_cords, TILE_SIZE, TILE_SIZE), OUTLINE_SIZE)
             else:
-                pygame.draw.rect(screen, (0, 0, 0), (x_cords, y_cords, TILE_SIZE, TILE_SIZE), OUTLINE_SIZE)
+                pygame.draw.rect(screen, OUTLINE_COLOR, (x_cords, y_cords, TILE_SIZE, TILE_SIZE), OUTLINE_SIZE)
 
         for content in self.contents:
             content.draw(x_cords, y_cords)
@@ -330,8 +353,65 @@ class Tile(Object):
                     self.connections[DOWN].draw(x, y + 1, 0, 1)
 
 
+class ListDisplay:
+
+    def __init__(self, LOI, rct=(int(SCREEN_WIDTH / 20), int(SCREEN_HEIGHT / 20),
+                                 int(SCREEN_WIDTH / 3), int(SCREEN_HEIGHT / 20 * 18)),
+                 txt="", txt_color=(75, 75, 75)):
+        self.LOI = LOI
+        self.rect = rct
+
+        labelRect = (rct[0] + rct[2] * 0.1, rct[1] + rct[3] * 0.01, rct[2] * 0.8, rct[3] * 0.08)
+        labelFont = fitTextSize(font, labelRect, txt)
+        self.labelPos = (int(labelRect[0] + labelRect[2] / 2 - labelFont.size(txt)[0] / 2),
+                         int(labelRect[1] + labelRect[3] / 2 - labelFont.size(txt)[1] / 2))
+        self.labelText = pygame.font.Font.render(labelFont, txt, True, txt_color)
+
+        self.lineOne = (int(rct[0]), int(rct[1] + rct[3] * 0.1))
+        self.lineTwo = (int(rct[0] + rct[2]), int(rct[1] + rct[3] * 0.1))
+
+    def draw(self):
+        pygame.draw.rect(screen, (150, 150, 150), self.rect)
+        pygame.draw.rect(screen, OUTLINE_COLOR, self.rect, OUTLINE_SIZE)
+        screen.blit(self.labelText, self.labelPos)
+        pygame.draw.line(screen, OUTLINE_COLOR, self.lineOne, self.lineTwo, OUTLINE_SIZE)
+
+
+class Button:
+
+    def __init__(self, rct, txt, color, txt_color):
+        labelRect = rct
+        labelFont = fitTextSize(font, labelRect, txt)
+        self.labelPos = (int(labelRect[0] + labelRect[2] / 2 - labelFont.size(txt)[0] / 2),
+                         int(labelRect[1] + labelRect[3] / 2 - labelFont.size(txt)[1] / 2))
+        self.labelText = pygame.font.Font.render(labelFont, txt, True, txt_color)
+        self.txt = txt
+
+        self.color = color
+        self.rect = rct
+        self.hidden = False
+
+    def draw(self):
+        if self.hidden:
+            return
+
+        pygame.draw.rect(screen, self.color, self.rect)
+        pygame.draw.rect(screen, OUTLINE_COLOR, self.rect, OUTLINE_SIZE)
+
+        if self.txt != "":
+            screen.blit(self.labelText, self.labelPos)
+
+    def handleClick(self, pressed, location):
+        if self.rect[0] < location[0] < self.rect[0] + self.rect[2] and \
+                self.rect[1] < location[1] < self.rect[1] + self.rect[3]:
+            return True
+        return False
+
+
 # Collections
 tiles = []
+showCharacterButtons = False
+characterButtons = []
 
 
 def generateTiles():
@@ -375,9 +455,19 @@ tiles[int(len(tiles) / 2)][int(len(tiles[0]) / 2)].addContent(Tree())
 camera = [int(len(tiles) / 2), int(len(tiles[0]) / 2)]
 
 # Initial setup
+LD = None
+
 update = [(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)]
+
 tiles[camera[0]][camera[1] + 1].addContent(Character((camera[0], camera[1] + 1)))
 tiles[camera[0]][camera[1]].draw(0, 0, 0, 0)
+
+characterButtons.append(Button((int(SCREEN_WIDTH / 6), int(SCREEN_HEIGHT / 8 * 6), int(SCREEN_WIDTH / 6),
+                                int(SCREEN_HEIGHT / 8)), "Items", (45, 45, 90), (0, 230, 100)))
+characterButtons.append(Button((int(SCREEN_WIDTH / 12 * 5), int(SCREEN_HEIGHT / 8 * 6), int(SCREEN_WIDTH / 6),
+                                int(SCREEN_HEIGHT / 8)), "Spells", (45, 45, 90), (0, 230, 100)))
+characterButtons.append(Button((int(SCREEN_WIDTH / 6 * 4), int(SCREEN_HEIGHT / 8 * 6), int(SCREEN_WIDTH / 6),
+                                int(SCREEN_HEIGHT / 8)), "Movement", (45, 45, 90), (0, 230, 100)))
 
 # Loop variables
 mouseDown = [0, 0, 0]
@@ -392,25 +482,44 @@ while True:
 
     if mousePressed != mouseDown:
         if mousePressed[0] != mouseDown[0] and mousePressed[0] == 1:
-            tile_x = int(camera[1] - (mouseLocation[0] - SCREEN_CENTER_X - HALF_TILE) / TILE_SIZE)
-            tile_y = int(camera[0] - (mouseLocation[1] - SCREEN_CENTER_Y - HALF_TILE) / TILE_SIZE)
+            # Check for button presses
+            if showCharacterButtons:
+                for index, button in enumerate(characterButtons):
+                    result = button.handleClick(mousePressed, mouseLocation)
+                    if result:
+                        if index == 0:
+                            LD = ListDisplay(selected.items, txt="Items")
+                        if index == 2:
+                            selected.highlight()
+                        showCharacterButtons = False
 
-            if tile_y >= len(tiles):
-                tile_y %= len(tiles)
-            if tile_x >= len(tiles[0]):
-                tile_x %= len(tiles[0])
-
-            if selected is not None and type(selected) == Character:
-                s_tile = tiles[tile_y][tile_x]
-                if s_tile.isHighlighted() and not s_tile.containsBlocker():
-                    selected.unHighlight()
-                    oldPosition = selected.tile
-                    tiles[oldPosition[0]][oldPosition[1]].contents.remove(selected)
-                    tiles[tile_y][tile_x].addContent(selected)
-                    selected.moveTo((tile_y, tile_x))
-                    selected.deselect()
+            # Check for tile stuff
             else:
-                tiles[tile_y][tile_x].toggleSelect()
+                tile_x = int(camera[1] - (mouseLocation[0] - SCREEN_CENTER_X - HALF_TILE) / TILE_SIZE)
+                tile_y = int(camera[0] - (mouseLocation[1] - SCREEN_CENTER_Y - HALF_TILE) / TILE_SIZE)
+
+                if tile_y >= len(tiles):
+                    tile_y %= len(tiles)
+                if tile_x >= len(tiles[0]):
+                    tile_x %= len(tiles[0])
+
+                if selected is not None and type(selected) == Character:
+                    s_tile = tiles[tile_y][tile_x]
+                    if s_tile.isHighlighted() and not s_tile.containsBlocker():
+                        selected.unHighlight()
+                        oldPosition = selected.tile
+                        tiles[oldPosition[0]][oldPosition[1]].contents.remove(selected)
+                        tiles[tile_y][tile_x].addContent(selected)
+                        selected.moveTo((tile_y, tile_x))
+                        selected.deselect()
+                    else:
+                        selected.deselect()
+                else:
+                    tiles[tile_y][tile_x].toggleSelect()
+
+                if type(selected) == Character:
+                    showCharacterButtons = True
+
             mapUpdateNeeded = True
         if mousePressed[1] != mouseDown[1]:
             pass
@@ -450,6 +559,20 @@ while True:
         update = [(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)]
         tiles[camera[0]][camera[1]].draw(0, 0, 0, 0)
 
+    if LD is not None:
+        if selected is not None and type(selected) == Character:
+            LD.draw()
+        else:
+            LD = None
+
+    if showCharacterButtons:
+        for index, button in enumerate(characterButtons):
+            if index != 1:
+                button.draw()
+            if selected.isSpellCaster():
+                button.draw()
+
     pygame.display.update(update)
     update = []
     clock.tick(60)
+    # print(clock.get_fps())
