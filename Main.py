@@ -40,6 +40,46 @@ def fitTextSize(font, rect, text, inc=4):
 
 
 # Assets and asset constants
+class AssetManager:
+
+    def __init__(self, file_name='Assets.txt', extensions=".png"):
+        file = open(file_name, 'r')
+
+        lines = file.read().split("\n")
+
+        self.highlighted = {}
+        self.assets = {}
+
+        for line in lines:
+            print(line)
+            if len(line) > 2:
+                contents = line.split("=")
+
+                location = "Assets"
+                if contents[0].__eq__("Item"):
+                    location = "Assets/Items/"
+
+                name = contents[1]
+                asset_file = location + name + extensions
+                highlighted_file = location + "highlighted/" + name + extensions
+
+                width = int(eval(contents[2]) * TILE_SIZE)
+                height = int(eval(contents[3]) * TILE_SIZE)
+
+                image = pygame.transform.smoothscale(pygame.image.load(asset_file), (width, height))
+                highlighted = pygame.transform.smoothscale(pygame.image.load(highlighted_file), (width, height))
+
+                self.assets[name] = image.copy()
+                self.highlighted[name] = highlighted.copy()
+
+    def get(self, name):
+        return self.assets[name]
+
+    def getH(self, name):
+        return self.highlighted[name]
+
+
+ASSET_MANAGER = AssetManager()
 PLAYER_IMAGE = pygame.transform.smoothscale(pygame.image.load("Player.png"),
                                             (int(TILE_SIZE * 0.55), int(TILE_SIZE * 0.75)))
 PLAYER_WIDTH = PLAYER_IMAGE.get_width()
@@ -108,9 +148,39 @@ class Object:
 
 class Item(Object):
 
-    def __init__(self, wg):
+    def __init__(self, type_name, wg, val, name=None):
         super().__init__()
+
+        if name is not None:
+            self.name = name
+        else:
+            self.name = type_name
+
+        self.type = type_name
         self.weight = wg
+        self.value = val
+
+    def draw(self, x, y):
+        print("This items draw function is not yet defined")
+        pass
+
+
+class SunGlasses(Item):
+
+    def __init__(self):
+        super().__init__("Sunglasses", 1, 2)
+        self.name = "Sunglasses"
+
+    def draw(self, x, y):
+        global screen
+
+        x_adjust = int((TILE_SIZE - PLAYER_WIDTH) / 2)
+        y_adjust = int((TILE_SIZE - PLAYER_HEIGHT) / 2)
+
+        if self.selected:
+            screen.blit(ASSET_MANAGER.getH(self.name), (x + x_adjust, y + y_adjust))
+        else:
+            screen.blit(ASSET_MANAGER.get(self.name), (x + x_adjust, y + y_adjust))
 
 
 class Character(Object):
@@ -157,6 +227,12 @@ class Character(Object):
 
     def isPossible(self, x, y, speed, possibilities):
         global tiles
+
+        if x == len(tiles):
+            x = 0
+
+        if y == len(tiles[0]):
+            y = 0
 
         using = tiles[x][y].difficulty * BASE_MOVEMENT_COST
 
@@ -429,9 +505,9 @@ def generateTiles():
         newRow = []
         for row in range(xRange):
             if col == yRange / 2 - 1 or col == yRange / 2 or col == yRange / 2 + 1:
-                newRow.append(Tile(col, row, terrain=DirtRoad))
+                newRow.append(Tile(row, col, terrain=DirtRoad))
             else:
-                newRow.append(Tile(col, row))
+                newRow.append(Tile(row, col))
         tiles.append(newRow.copy())
 
     for col in range(yRange):
@@ -466,9 +542,9 @@ def generateTiles():
                 tiles[col][row].connect(tiles[col][0], LEFT)
 
 
-
 generateTiles()
 tiles[int(len(tiles) / 2)][int(len(tiles[0]) / 2)].addContent(Tree())
+tiles[0][0].addContent(SunGlasses())
 camera = [int(len(tiles) / 2), int(len(tiles[0]) / 2)]
 
 # Initial setup
@@ -488,7 +564,7 @@ characterButtons.append(Button((int(SCREEN_WIDTH / 6 * 4), int(SCREEN_HEIGHT / 8
 
 # Loop variables
 mouseDown = [0, 0, 0]
-DEBUGGING = True
+DEBUGGING = False
 selected = None
 
 while True:
@@ -516,13 +592,14 @@ while True:
                 tile_x = int(camera[1] - (SCREEN_CENTER_X - HALF_TILE - mouseLocation[0]) / TILE_SIZE)
                 tile_y = int(camera[0] - (SCREEN_CENTER_Y - HALF_TILE - mouseLocation[1]) / TILE_SIZE)
 
-                if DEBUGGING:
-                    print(tile_x, tile_y)
-
                 if tile_y >= len(tiles):
                     tile_y %= len(tiles)
                 if tile_x >= len(tiles[0]):
                     tile_x %= len(tiles[0])
+
+                if DEBUGGING:
+                    t = tiles[tile_y][tile_x]
+                    print(tile_x, tile_y, t.x, t.y)
 
                 if selected is not None and type(selected) == Character:
                     s_tile = tiles[tile_y][tile_x]
@@ -575,6 +652,8 @@ while True:
                 if camera[0] < 0:
                     camera[0] = len(tiles) - 1
                 mapUpdateNeeded = True
+            if event.key == pygame.K_m:
+                DEBUGGING = not DEBUGGING
 
     if mapUpdateNeeded:
         update = [(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)]
