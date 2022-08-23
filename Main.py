@@ -224,10 +224,12 @@ class Tree(Object):
 
 class Tile(Object):
 
-    def __init__(self, terrain=GrassLand, outline=True):
+    def __init__(self, x, y, terrain=GrassLand, outline=True):
         super().__init__()
         self.connections = [None, None, None, None]
         self.contents = []
+        self.x = x
+        self.y = y
         self.terrain = terrain
         self.color = terrain.color
         self.difficulty = terrain.difficulty
@@ -307,8 +309,9 @@ class Tile(Object):
         return self.highlighted
 
     def draw(self, x, y, direction_x, direction_y, outline=True):
-        x_cords = int(SCREEN_CENTER_X - HALF_TILE + x * TILE_SIZE)
-        y_cords = int(SCREEN_CENTER_Y - HALF_TILE + y * TILE_SIZE)
+
+        x_cords = int(SCREEN_CENTER_X - HALF_TILE - x * TILE_SIZE)
+        y_cords = int(SCREEN_CENTER_Y - HALF_TILE - y * TILE_SIZE)
 
         pygame.draw.rect(screen, self.color, (x_cords, y_cords, TILE_SIZE, TILE_SIZE))
 
@@ -344,6 +347,8 @@ class Tile(Object):
             if direction_x == 1 and x < TILES_X / 2:
                 if self.connections[RIGHT]:
                     self.connections[RIGHT].draw(x + 1, y, 1, 0)
+                else:
+                    self.highlighted = True
         else:
             if direction_y == -1 and math.fabs(y) < TILES_Y / 2:
                 if self.connections[UP]:
@@ -417,37 +422,49 @@ characterButtons = []
 def generateTiles():
     global tiles
 
-    xRange = int(TILES_X * 3)
-    yRange = int(TILES_Y * 3)
+    xRange = int(TILES_X)
+    yRange = int(TILES_Y)
 
     for col in range(yRange):
         newRow = []
         for row in range(xRange):
             if col == yRange / 2 - 1 or col == yRange / 2 or col == yRange / 2 + 1:
-                newRow.append(Tile(terrain=DirtRoad))
+                newRow.append(Tile(col, row, terrain=DirtRoad))
             else:
-                newRow.append(Tile())
+                newRow.append(Tile(col, row))
         tiles.append(newRow.copy())
 
     for col in range(yRange):
         for row in range(xRange):
+
             if col > 0:
                 tiles[col - 1][row].connect(tiles[col][row], UP)
+                tiles[col][row].connect(tiles[col - 1][row], DOWN)
             else:
                 tiles[len(tiles) - 1][row].connect(tiles[col][row], UP)
+                tiles[col][row].connect(tiles[len(tiles) - 1][row], DOWN)
+
             if col < len(tiles) - 1:
                 tiles[col + 1][row].connect(tiles[col][row], DOWN)
+                tiles[col][row].connect(tiles[col + 1][row], UP)
             else:
                 tiles[0][row].connect(tiles[col][row], DOWN)
+                tiles[col][row].connect(tiles[0][row], UP)
 
             if row > 0:
                 tiles[col][row - 1].connect(tiles[col][row], LEFT)
+                tiles[col][row].connect(tiles[col][row - 1], RIGHT)
             else:
                 tiles[col][len(tiles[0]) - 1].connect(tiles[col][row], LEFT)
+                tiles[col][row].connect(tiles[col][len(tiles[0]) - 1], RIGHT)
+
             if row < len(tiles) - 1:
                 tiles[col][row + 1].connect(tiles[col][row], RIGHT)
+                tiles[col][row].connect(tiles[col][row + 1], LEFT)
             else:
                 tiles[col][0].connect(tiles[col][row], RIGHT)
+                tiles[col][row].connect(tiles[col][0], LEFT)
+
 
 
 generateTiles()
@@ -471,6 +488,7 @@ characterButtons.append(Button((int(SCREEN_WIDTH / 6 * 4), int(SCREEN_HEIGHT / 8
 
 # Loop variables
 mouseDown = [0, 0, 0]
+DEBUGGING = True
 selected = None
 
 while True:
@@ -495,8 +513,11 @@ while True:
 
             # Check for tile stuff
             else:
-                tile_x = int(camera[1] - (mouseLocation[0] - SCREEN_CENTER_X - HALF_TILE) / TILE_SIZE)
-                tile_y = int(camera[0] - (mouseLocation[1] - SCREEN_CENTER_Y - HALF_TILE) / TILE_SIZE)
+                tile_x = int(camera[1] - (SCREEN_CENTER_X - HALF_TILE - mouseLocation[0]) / TILE_SIZE)
+                tile_y = int(camera[0] - (SCREEN_CENTER_Y - HALF_TILE - mouseLocation[1]) / TILE_SIZE)
+
+                if DEBUGGING:
+                    print(tile_x, tile_y)
 
                 if tile_y >= len(tiles):
                     tile_y %= len(tiles)
@@ -558,6 +579,7 @@ while True:
     if mapUpdateNeeded:
         update = [(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)]
         tiles[camera[0]][camera[1]].draw(0, 0, 0, 0)
+        counter = 0
 
     if LD is not None:
         if selected is not None and type(selected) == Character:
@@ -573,6 +595,7 @@ while True:
                 button.draw()
 
     pygame.display.update(update)
+    screen.fill((0, 0, 0))
     update = []
     clock.tick(60)
     # print(clock.get_fps())
