@@ -112,6 +112,7 @@ class Object:
     def isBlocking(self):
         return self.blocking
 
+    # toggleSelect never runs because Tile has its own and that is the only one that will run
     def toggleSelect(self):
         global selected
 
@@ -159,19 +160,22 @@ class Item(Object):
         self.type = type_name
         self.weight = wg
         self.value = val
+        self.inInventory = False
+
+    def pickUp(self):
+        self.inInventory = True
+
+    def place(self, x, y):
+        global tiles
+
+        self.inInventory = False
+
+        tiles[x][y].addContents(self)
 
     def draw(self, x, y):
-        print("This items draw function is not yet defined")
-        pass
+        if self.inInventory:
+            return
 
-
-class SunGlasses(Item):
-
-    def __init__(self):
-        super().__init__("Sunglasses", 1, 2)
-        self.name = "Sunglasses"
-
-    def draw(self, x, y):
         global screen
 
         x_adjust = int((TILE_SIZE - PLAYER_WIDTH) / 2)
@@ -183,17 +187,28 @@ class SunGlasses(Item):
             screen.blit(ASSET_MANAGER.get(self.name), (x + x_adjust, y + y_adjust))
 
 
+class SunGlasses(Item):
+
+    def __init__(self):
+        super().__init__("Sunglasses", 1, 2)
+
+
 class Character(Object):
 
     def __init__(self, pos, mvmt=30):
         super().__init__()
         self.movement = mvmt + BASE_MOVEMENT_COST
-        self.spellCaster = False
-        self.tile = pos
+        self.spellCaster = True
+        self.x = pos[0]
+        self.y = pos[1]
         self.items = []
 
     def isSpellCaster(self):
         return self.spellCaster
+
+    def pickUp(self, item):
+        self.items.append(item)
+        item.pickUp()
 
     def select(self):
         super().select()
@@ -202,15 +217,16 @@ class Character(Object):
         super().deselect()
 
     def moveTo(self, tile):
-        self.tile = tile
+        self.x = tile[0]
+        self.y = tile[1]
 
     def highlight(self):
-        pos = self.findTilesToMoveTo(self.tile[0], self.tile[1])
+        pos = self.findTilesToMoveTo(self.x, self.y)
         for p in pos:
             tiles[p[0]][p[1]].highlight()
 
     def unHighlight(self):
-        pos = self.findTilesToMoveTo(self.tile[0], self.tile[1])
+        pos = self.findTilesToMoveTo(self.x, self.y)
         for p in pos:
             tiles[p[0]][p[1]].unHighlight()
 
@@ -331,30 +347,28 @@ class Tile(Object):
             # Deselection
 
             # Already selected tile so deselect and move selection to first item
-            if self.selected and self.selectedItem == 0:
+            if self.selected and self.selectedItem == len(self.contents):
                 self.selected = False
-                self.selectedItem = 1
+                self.selectedItem = 0
 
             # Already selected item so move to next one
-            if self.contents[self.selectedItem - 1].isSelected():
+            if self.selectedItem < len(self.contents) and self.contents[self.selectedItem].isSelected():
                 self.selectedItem += 1
-                if self.selectedItem > len(self.contents):
-                    self.selectedItem = 0
 
             # Selection
 
             # Selection tile is the tile itself
-            if self.selectedItem == 0:
+            if self.selectedItem == len(self.contents):
                 if selected is not None:
                     selected.deselect()
                 self.selected = True
                 selected = self
 
             # Selection is the contents of the tile
-            if self.selectedItem > 0 and not self.contents[self.selectedItem - 1].isSelected():
+            if self.selectedItem < len(self.contents) and not self.contents[self.selectedItem].isSelected():
                 if selected is not None:
                     selected.deselect()
-                self.contents[self.selectedItem - 1].select()
+                self.contents[self.selectedItem].select()
 
         # No contents to select
         else:
@@ -434,38 +448,12 @@ class Tile(Object):
                     self.connections[DOWN].draw(x, y + 1, 0, 1)
 
 
-class ListDisplay:
-
-    def __init__(self, LOI, rct=(int(SCREEN_WIDTH / 20), int(SCREEN_HEIGHT / 20),
-                                 int(SCREEN_WIDTH / 3), int(SCREEN_HEIGHT / 20 * 18)),
-                 txt="", txt_color=(75, 75, 75)):
-        self.LOI = LOI
-        self.rect = rct
-
-        labelRect = (rct[0] + rct[2] * 0.1, rct[1] + rct[3] * 0.01, rct[2] * 0.8, rct[3] * 0.08)
-        labelFont = fitTextSize(font, labelRect, txt)
-        self.labelPos = (int(labelRect[0] + labelRect[2] / 2 - labelFont.size(txt)[0] / 2),
-                         int(labelRect[1] + labelRect[3] / 2 - labelFont.size(txt)[1] / 2))
-        self.labelText = pygame.font.Font.render(labelFont, txt, True, txt_color)
-
-        self.lineOne = (int(rct[0]), int(rct[1] + rct[3] * 0.1))
-        self.lineTwo = (int(rct[0] + rct[2]), int(rct[1] + rct[3] * 0.1))
-
-    def draw(self):
-        pygame.draw.rect(screen, (150, 150, 150), self.rect)
-        pygame.draw.rect(screen, OUTLINE_COLOR, self.rect, OUTLINE_SIZE)
-        screen.blit(self.labelText, self.labelPos)
-        pygame.draw.line(screen, OUTLINE_COLOR, self.lineOne, self.lineTwo, OUTLINE_SIZE)
-
-
 class Button:
 
-    def __init__(self, rct, txt, color, txt_color):
-        labelRect = rct
-        labelFont = fitTextSize(font, labelRect, txt)
-        self.labelPos = (int(labelRect[0] + labelRect[2] / 2 - labelFont.size(txt)[0] / 2),
-                         int(labelRect[1] + labelRect[3] / 2 - labelFont.size(txt)[1] / 2))
-        self.labelText = pygame.font.Font.render(labelFont, txt, True, txt_color)
+    def __init__(self, rct, txt, color, txt_color, font_to_use):
+        self.labelPos = (int(rct[0] + rct[2] / 2 - font_to_use.size(txt)[0] / 2),
+                         int(rct[1] + rct[3] / 2 - font_to_use.size(txt)[1] / 2))
+        self.labelText = pygame.font.Font.render(font_to_use, txt, True, txt_color)
         self.txt = txt
 
         self.color = color
@@ -487,6 +475,97 @@ class Button:
                 self.rect[1] < location[1] < self.rect[1] + self.rect[3]:
             return True
         return False
+
+
+class Slider:
+
+    def __init__(self, pointA, pointB, color, size, pos=0.0):
+        self.a = pointA
+        self.b = pointB
+        self.xDiff = (pointB[0] - pointA[0])
+        self.yDiff = (pointB[1] - pointA[1])
+        self.c = math.sqrt(self.xDiff ** 2 + self.yDiff ** 2)
+        self.size = int(size)
+        self.barSize = int(size * 0.8)
+        self.color = color
+        self.pos = pos
+
+    def draw(self):
+        #  Draw Bar
+        pygame.draw.line(screen, self.color, self.a, self.b, self.barSize)
+
+        #  Draw Picker
+        p_cords = [int(self.a[0] + self.xDiff * self.pos), int(self.a[1] + self.yDiff * self.pos)]
+        pygame.draw.circle(screen, (0, 0, 0), p_cords, self.size)
+
+    def handle_mouse(self, mouse):
+        distance = math.fabs((self.xDiff * (self.b[1] - mouse[1])) - (self.yDiff * (self.b[0] - mouse[0]))) / self.c
+        print(distance, self.size)
+
+        pos = ((mouse[0] - self.a[0]) ** 2 + (mouse[1] - self.a[1]) ** 2) ** 0.5 / self.c
+        if pos > 1:
+            self.pos = 1
+        else:
+            self.pos = pos
+        return distance < self.size
+
+
+class ListDisplay:
+
+    def __init__(self, LOI, rct=(int(SCREEN_WIDTH / 20), int(SCREEN_HEIGHT / 20),
+                                 int(SCREEN_WIDTH / 3), int(SCREEN_HEIGHT / 20 * 18)),
+                 txt="", txt_color=(75, 75, 75)):
+        self.LOI = LOI
+        self.rect = rct
+
+        labelRect = (rct[0] + rct[2] * 0.1, rct[1] + rct[3] * 0.01, rct[2] * 0.8, rct[3] * 0.08)
+        labelFont = fitTextSize(font, labelRect, txt)
+        self.labelPos = (int(labelRect[0] + labelRect[2] / 2 - labelFont.size(txt)[0] / 2),
+                         int(labelRect[1] + labelRect[3] / 2 - labelFont.size(txt)[1] / 2))
+        self.labelText = pygame.font.Font.render(labelFont, txt, True, txt_color)
+        self.txt_color = txt_color
+
+        self.lineOne = (int(rct[0]), int(rct[1] + rct[3] * 0.1))
+        self.lineTwo = (int(rct[0] + rct[2]), int(rct[1] + rct[3] * 0.1))
+
+        self.slider = Slider((rct[0] + rct[2] * 0.95, int(rct[1] + rct[3] * 0.2)), (rct[0] + rct[2] * 0.95, int(rct[1] + rct[3] * 0.8)),
+                             (200, 200, 200), rct[2] * 0.03)
+
+        self.amountOfItemsToDisplay = 15
+        self.itemsTop = int(rct[1] + rct[3] * 0.1)
+        self.itemsIncY = int(rct[3] * 0.9 / self.amountOfItemsToDisplay)
+        self.itemsX = int(rct[0] + rct[2] * 0.1)
+        self.itemsWidth = int(rct[2] * 0.8)
+
+        self.font = fitTextSize(font, (self.itemsX, self.itemsTop, self.itemsWidth, self.itemsIncY * 0.8), "G")
+
+    def draw(self):
+        pygame.draw.rect(screen, (150, 150, 150), self.rect)
+        pygame.draw.rect(screen, OUTLINE_COLOR, self.rect, OUTLINE_SIZE)
+        screen.blit(self.labelText, self.labelPos)
+        pygame.draw.line(screen, OUTLINE_COLOR, self.lineOne, self.lineTwo, OUTLINE_SIZE)
+
+        for count in range(self.amountOfItemsToDisplay):
+            pygame.draw.line(screen, OUTLINE_COLOR, (self.itemsX, self.itemsTop + self.itemsIncY * count),
+                             (self.itemsX + self.itemsWidth, self.itemsTop + self.itemsIncY * count), OUTLINE_SIZE)
+            textPos = (int(self.itemsX),
+                       int(self.itemsTop + self.itemsIncY * count + self.itemsIncY / 2 - self.font.size("A")[1] / 2))
+            text = pygame.font.Font.render(self.font, str(count + 1), True, self.txt_color)
+            screen.blit(text, textPos)
+
+        self.slider.draw()
+
+    def handleMouse(self, loc, pressed):
+        yBool = (self.rect[1] < loc[1] < self.rect[1] + self.rect[3])
+        xBool = (self.rect[0] < loc[0] < self.rect[0] + self.rect[2])
+
+        if not xBool or not yBool:
+            return 0
+        else:
+            if self.slider.handle_mouse(loc):
+                return 2
+
+            return 1
 
 
 # Collections
@@ -555,17 +634,45 @@ update = [(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)]
 tiles[camera[0]][camera[1] + 1].addContent(Character((camera[0], camera[1] + 1)))
 tiles[camera[0]][camera[1]].draw(0, 0, 0, 0)
 
-characterButtons.append(Button((int(SCREEN_WIDTH / 6), int(SCREEN_HEIGHT / 8 * 6), int(SCREEN_WIDTH / 6),
-                                int(SCREEN_HEIGHT / 8)), "Items", (45, 45, 90), (0, 230, 100)))
-characterButtons.append(Button((int(SCREEN_WIDTH / 12 * 5), int(SCREEN_HEIGHT / 8 * 6), int(SCREEN_WIDTH / 6),
-                                int(SCREEN_HEIGHT / 8)), "Spells", (45, 45, 90), (0, 230, 100)))
-characterButtons.append(Button((int(SCREEN_WIDTH / 6 * 4), int(SCREEN_HEIGHT / 8 * 6), int(SCREEN_WIDTH / 6),
-                                int(SCREEN_HEIGHT / 8)), "Movement", (45, 45, 90), (0, 230, 100)))
+
+# Button setup variables
+ButtonNames = ["Spells", "Items", "Movement", "Retrieve"]
+
+ButtonCount = len(ButtonNames)
+ButtonWidth = int(SCREEN_WIDTH / (ButtonCount + 1))
+ButtonZeroX = int(ButtonWidth / (ButtonCount + 1))
+ButtonIncX = int(ButtonWidth + ButtonZeroX)
+
+ButtonY = int(SCREEN_HEIGHT / 8 * 6)
+ButtonHeight = int(SCREEN_HEIGHT / 8)
+
+ButtonColor = (45, 45, 90)
+ButtonTextColor = (0, 230, 100)
+
+longestWord = 0
+for x in range(1, ButtonCount):
+    if len(ButtonNames[x]) > len(ButtonNames[longestWord]):
+        longestWord = x
+
+ButtonFont = fitTextSize(font, (0, 0, ButtonWidth, ButtonHeight), ButtonNames[longestWord] + "XX")
+
+# Button setup
+for buttonID in range(ButtonCount):
+    characterButtons.append(Button((ButtonZeroX + buttonID * ButtonIncX, ButtonY, ButtonWidth, ButtonHeight),
+                                   ButtonNames[buttonID], ButtonColor, ButtonTextColor, ButtonFont))
+
+# Loop constants
+NORMAL = 0
+SELECTING = 1
+MOVING = 2
+GRABBING = 3
 
 # Loop variables
 mouseDown = [0, 0, 0]
 DEBUGGING = False
+state = NORMAL
 selected = None
+actor = None
 
 while True:
     mapUpdateNeeded = False
@@ -581,12 +688,27 @@ while True:
                 for index, button in enumerate(characterButtons):
                     result = button.handleClick(mousePressed, mouseLocation)
                     if result:
-                        if index == 0:
+                        if index == 1:
                             LD = ListDisplay(selected.items, txt="Items")
+                            state = SELECTING
                         if index == 2:
                             selected.highlight()
+                            state = MOVING
+                        if index == 3:
+                            state = GRABBING
+                            actor = selected
                         showCharacterButtons = False
 
+            elif state == SELECTING:
+                LD_result = LD.handleMouse(mouseLocation, mousePressed)
+                if LD_result == 0:
+                    actor = None
+                    state = NORMAL
+                    selected.deselect()
+                    LD = None
+                    mapUpdateNeeded = True
+                elif LD_result == 2:
+                    mapUpdateNeeded = True
             # Check for tile stuff
             else:
                 tile_x = int(camera[1] - (SCREEN_CENTER_X - HALF_TILE - mouseLocation[0]) / TILE_SIZE)
@@ -601,22 +723,31 @@ while True:
                     t = tiles[tile_y][tile_x]
                     print(tile_x, tile_y, t.x, t.y)
 
-                if selected is not None and type(selected) == Character:
+                if selected is not None and type(selected) == Character and state == MOVING:
                     s_tile = tiles[tile_y][tile_x]
                     if s_tile.isHighlighted() and not s_tile.containsBlocker():
                         selected.unHighlight()
-                        oldPosition = selected.tile
-                        tiles[oldPosition[0]][oldPosition[1]].contents.remove(selected)
+                        oldX = selected.x
+                        oldY = selected.y
+                        tiles[oldX][oldY].contents.remove(selected)
                         tiles[tile_y][tile_x].addContent(selected)
                         selected.moveTo((tile_y, tile_x))
                         selected.deselect()
                     else:
+                        selected.unHighlight()
                         selected.deselect()
                 else:
                     tiles[tile_y][tile_x].toggleSelect()
 
                 if type(selected) == Character:
                     showCharacterButtons = True
+
+                if state != NORMAL:
+                    if state == GRABBING and issubclass(type(selected), Item):
+                        actor.pickUp(selected)
+
+                    actor = None
+                    state = NORMAL
 
             mapUpdateNeeded = True
         if mousePressed[1] != mouseDown[1]:
@@ -652,6 +783,7 @@ while True:
                 if camera[0] < 0:
                     camera[0] = len(tiles) - 1
                 mapUpdateNeeded = True
+
             if event.key == pygame.K_m:
                 DEBUGGING = not DEBUGGING
 
@@ -668,13 +800,13 @@ while True:
 
     if showCharacterButtons:
         for index, button in enumerate(characterButtons):
-            if index != 1:
-                button.draw()
-            if selected.isSpellCaster():
-                button.draw()
+            button.draw()
 
     pygame.display.update(update)
     screen.fill((0, 0, 0))
     update = []
     clock.tick(60)
-    # print(clock.get_fps())
+    if DEBUGGING:
+        speed = clock.get_fps()
+        if speed < 55:
+            print(speed)
