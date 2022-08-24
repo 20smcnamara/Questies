@@ -55,7 +55,6 @@ class AssetManager:
         self.assets = {}
 
         for line in lines:
-            print(line)
             if len(line) > 2:
                 contents = line.split("=")
 
@@ -584,8 +583,8 @@ class ListDisplay:
 
         self.buttons = []
         for x in range(self.amountOfItemsToDisplay):
-            self.buttons.append((Button((self.itemsX + self.itemsWidth * 0.59, self.itemsTop + self.itemsIncY * x, self.itemsWidth / 5, self.itemsIncY), "Use", (25, 25, 25), INACTIVE, self.font),
-                                 Button((self.itemsX + self.itemsWidth * 0.6 + self.itemsWidth / 5, self.itemsTop + self.itemsIncY * x, self.itemsWidth / 4,  self.itemsIncY), "Drop", (25, 25, 25), DANGER, self.font)))
+            self.buttons.append((Button((int(self.itemsX + self.itemsWidth * 0.59), int(self.itemsTop + self.itemsIncY * x), int(self.itemsWidth / 5), self.itemsIncY), "Use", (25, 25, 25), INACTIVE, self.font),
+                                 Button((int(self.itemsX + self.itemsWidth * 0.6 + self.itemsWidth / 5), int(self.itemsTop + self.itemsIncY * x), int(self.itemsWidth / 4),  self.itemsIncY), "Drop", (25, 25, 25), DANGER, self.font)))
 
     def draw(self):
         pygame.draw.rect(screen, (150, 150, 150), self.rect)
