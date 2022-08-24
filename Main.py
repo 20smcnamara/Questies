@@ -16,6 +16,10 @@ OUTLINE_COLOR = (20, 20, 20)
 SELECTION_COLOR = (225, 220, 50)
 BASE_MOVEMENT_COST = 5
 
+INACTIVE = (240, 175, 100)
+ACTIVE = (100, 255, 100)
+DANGER = (240, 100, 100)
+
 # Directions
 LEFT = 0
 UP = 1
@@ -105,9 +109,9 @@ DirtRoad = Terrain(0.75, (115, 90, 75))
 
 class Object:
 
-    def __init__(self, args={"Blocking": True}):
+    def __init__(self, Blocking=True):
         self.selected = False
-        self.blocking = args["Blocking"]
+        self.blocking = Blocking
 
     def isBlocking(self):
         return self.blocking
@@ -150,17 +154,20 @@ class Object:
 class Item(Object):
 
     def __init__(self, type_name, wg, val, name=None):
-        super().__init__()
+        super().__init__(Blocking=False)
 
         if name is not None:
             self.name = name
         else:
-            self.name = type_name
+            self.name = type_name + type_name + type_name
 
         self.type = type_name
         self.weight = wg
         self.value = val
         self.inInventory = False
+
+    def getName(self):
+        return self.name
 
     def pickUp(self):
         self.inInventory = True
@@ -170,7 +177,7 @@ class Item(Object):
 
         self.inInventory = False
 
-        tiles[x][y].addContents(self)
+        tiles[x][y].addContent(self)
 
     def draw(self, x, y):
         if self.inInventory:
@@ -182,9 +189,9 @@ class Item(Object):
         y_adjust = int((TILE_SIZE - PLAYER_HEIGHT) / 2)
 
         if self.selected:
-            screen.blit(ASSET_MANAGER.getH(self.name), (x + x_adjust, y + y_adjust))
+            screen.blit(ASSET_MANAGER.getH(self.type), (x + x_adjust, y + y_adjust))
         else:
-            screen.blit(ASSET_MANAGER.get(self.name), (x + x_adjust, y + y_adjust))
+            screen.blit(ASSET_MANAGER.get(self.type), (x + x_adjust, y + y_adjust))
 
 
 class SunGlasses(Item):
@@ -206,9 +213,26 @@ class Character(Object):
     def isSpellCaster(self):
         return self.spellCaster
 
+    def getItems(self):
+        return self.items.copy()
+
     def pickUp(self, item):
         self.items.append(item)
+        tiles[self.x][self.y].removeContent(item)
         item.pickUp()
+
+    def pickUp(self, item, xCord, yCord):
+        self.items.append(item)
+        tiles[xCord][yCord].removeContent(item)
+        item.pickUp()
+
+    def get(self, item):
+        self.items.append(item)
+        item.pickUp()
+
+    def drop(self, index):
+        self.items[index].place(self.x, self.y)
+        del self.items[index]
 
     def select(self):
         super().select()
@@ -332,6 +356,9 @@ class Tile(Object):
 
     def addContent(self, obj):
         self.contents.append(obj)
+
+    def removeContent(self, obj):
+        self.contents.remove(obj)
 
     def containsBlocker(self):
         for content in self.contents:
@@ -476,10 +503,13 @@ class Button:
             return True
         return False
 
+    def updateTxtColor(self, color, font):
+        self.labelText = pygame.font.Font.render(font, self.txt, True, color)
+
 
 class Slider:
 
-    def __init__(self, pointA, pointB, color, size, pos=0.0):
+    def __init__(self, pointA, pointB, color, size, pos=0.0, colorPoint=(0, 0, 0)):
         self.a = pointA
         self.b = pointB
         self.xDiff = (pointB[0] - pointA[0])
@@ -489,6 +519,10 @@ class Slider:
         self.barSize = int(size * 0.8)
         self.color = color
         self.pos = pos
+        self.colorPos = colorPoint
+
+    def getPos(self):
+        return self.pos
 
     def draw(self):
         #  Draw Bar
@@ -496,17 +530,19 @@ class Slider:
 
         #  Draw Picker
         p_cords = [int(self.a[0] + self.xDiff * self.pos), int(self.a[1] + self.yDiff * self.pos)]
-        pygame.draw.circle(screen, (0, 0, 0), p_cords, self.size)
+        pygame.draw.circle(screen, self.colorPos, p_cords, self.size)
 
     def handle_mouse(self, mouse):
         distance = math.fabs((self.xDiff * (self.b[1] - mouse[1])) - (self.yDiff * (self.b[0] - mouse[0]))) / self.c
-        print(distance, self.size)
 
-        pos = ((mouse[0] - self.a[0]) ** 2 + (mouse[1] - self.a[1]) ** 2) ** 0.5 / self.c
-        if pos > 1:
-            self.pos = 1
-        else:
-            self.pos = pos
+        if distance < self.size:
+            pos = ((mouse[0] - self.a[0]) ** 2 + (mouse[1] - self.a[1]) ** 2) ** 0.5 / self.c
+
+            if pos > 1:
+                self.pos = 1
+            else:
+                self.pos = pos
+
         return distance < self.size
 
 
@@ -514,7 +550,9 @@ class ListDisplay:
 
     def __init__(self, LOI, rct=(int(SCREEN_WIDTH / 20), int(SCREEN_HEIGHT / 20),
                                  int(SCREEN_WIDTH / 3), int(SCREEN_HEIGHT / 20 * 18)),
-                 txt="", txt_color=(75, 75, 75)):
+                 txt="", txt_color=(75, 75, 75), target=None):
+        self.items = selected.getItems()
+
         self.LOI = LOI
         self.rect = rct
 
@@ -528,8 +566,8 @@ class ListDisplay:
         self.lineOne = (int(rct[0]), int(rct[1] + rct[3] * 0.1))
         self.lineTwo = (int(rct[0] + rct[2]), int(rct[1] + rct[3] * 0.1))
 
-        self.slider = Slider((rct[0] + rct[2] * 0.95, int(rct[1] + rct[3] * 0.2)), (rct[0] + rct[2] * 0.95, int(rct[1] + rct[3] * 0.8)),
-                             (200, 200, 200), rct[2] * 0.03)
+        self.slider = Slider((int(rct[0] + rct[2] * 0.97), int(rct[1] + rct[3] * 0.2)), (int(rct[0] + rct[2] * 0.97), int(rct[1] + rct[3] * 0.8)),
+                             (200, 200, 200), int(rct[2] * 0.03), colorPoint=(225, 225, 225))
 
         self.amountOfItemsToDisplay = 15
         self.itemsTop = int(rct[1] + rct[3] * 0.1)
@@ -537,7 +575,17 @@ class ListDisplay:
         self.itemsX = int(rct[0] + rct[2] * 0.1)
         self.itemsWidth = int(rct[2] * 0.8)
 
+        self.characterLimit = 10
+
         self.font = fitTextSize(font, (self.itemsX, self.itemsTop, self.itemsWidth, self.itemsIncY * 0.8), "G")
+        self.page = 0
+
+        self.equipped = []
+
+        self.buttons = []
+        for x in range(self.amountOfItemsToDisplay):
+            self.buttons.append((Button((self.itemsX + self.itemsWidth * 0.59, self.itemsTop + self.itemsIncY * x, self.itemsWidth / 5, self.itemsIncY), "Use", (25, 25, 25), INACTIVE, self.font),
+                                 Button((self.itemsX + self.itemsWidth * 0.6 + self.itemsWidth / 5, self.itemsTop + self.itemsIncY * x, self.itemsWidth / 4,  self.itemsIncY), "Drop", (25, 25, 25), DANGER, self.font)))
 
     def draw(self):
         pygame.draw.rect(screen, (150, 150, 150), self.rect)
@@ -545,12 +593,32 @@ class ListDisplay:
         screen.blit(self.labelText, self.labelPos)
         pygame.draw.line(screen, OUTLINE_COLOR, self.lineOne, self.lineTwo, OUTLINE_SIZE)
 
+        pages = int(len(self.items) / self.amountOfItemsToDisplay + 1)
+
+        self.page = math.floor(self.slider.getPos() / (1 / pages))
+        if self.page == pages:
+            self.page = pages - 1
+
         for count in range(self.amountOfItemsToDisplay):
+            self.buttons[count][0].draw()
+            self.buttons[count][1].draw()
+
             pygame.draw.line(screen, OUTLINE_COLOR, (self.itemsX, self.itemsTop + self.itemsIncY * count),
                              (self.itemsX + self.itemsWidth, self.itemsTop + self.itemsIncY * count), OUTLINE_SIZE)
+
+            textPos = (int(self.itemsX - self.font.size(str(count + self.page * self.amountOfItemsToDisplay + 1))[0]),
+                       int(self.itemsTop + self.itemsIncY * count + self.itemsIncY / 2 - self.font.size("A")[1] / 2))
+            text = pygame.font.Font.render(self.font, str(count + self.page * self.amountOfItemsToDisplay + 1), True,
+                                           [int(self.txt_color[0] * 0.8), int(self.txt_color[1] * 0.8), int(self.txt_color[2] * 0.8)])
+            screen.blit(text, textPos)
+
+            if self.page * self.amountOfItemsToDisplay + count >= len(self.items):
+                continue
+
             textPos = (int(self.itemsX),
                        int(self.itemsTop + self.itemsIncY * count + self.itemsIncY / 2 - self.font.size("A")[1] / 2))
-            text = pygame.font.Font.render(self.font, str(count + 1), True, self.txt_color)
+            text = pygame.font.Font.render(self.font, self.items[self.page * self.amountOfItemsToDisplay + count].getName()[:self.characterLimit], True,
+                                           self.txt_color)
             screen.blit(text, textPos)
 
         self.slider.draw()
@@ -564,6 +632,25 @@ class ListDisplay:
         else:
             if self.slider.handle_mouse(loc):
                 return 2
+
+            for num in range(self.amountOfItemsToDisplay):
+                if self.buttons[num][0].handleClick(pressed, loc):
+                    itemNum = self.amountOfItemsToDisplay * self.page + num
+                    if itemNum < len(self.items):
+                        tempItem = self.items[itemNum]
+                        if self.equipped.__contains__(tempItem):
+                            self.equipped.remove(tempItem)
+                            self.buttons[num][0].updateTxtColor(ACTIVE, self.font)
+                        else:
+                            self.equipped.append(tempItem)
+                            self.buttons[num][0].updateTxtColor(INACTIVE, self.font)
+                        return 2
+                if self.buttons[num][1].handleClick(pressed, loc):
+                    itemNum = self.amountOfItemsToDisplay * self.page + num
+                    if itemNum < len(self.items):
+                        selected.drop(itemNum)
+                        self.items = selected.getItems()
+                    return 2
 
             return 1
 
@@ -623,15 +710,17 @@ def generateTiles():
 
 generateTiles()
 tiles[int(len(tiles) / 2)][int(len(tiles[0]) / 2)].addContent(Tree())
-tiles[0][0].addContent(SunGlasses())
 camera = [int(len(tiles) / 2), int(len(tiles[0]) / 2)]
 
 # Initial setup
 LD = None
-
 update = [(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)]
 
-tiles[camera[0]][camera[1] + 1].addContent(Character((camera[0], camera[1] + 1)))
+MainCharacter = Character((camera[0], camera[1] + 1))
+MainCharacter.get(SunGlasses())
+MainCharacter.get(SunGlasses())
+
+tiles[camera[0]][camera[1] + 1].addContent(MainCharacter)
 tiles[camera[0]][camera[1]].draw(0, 0, 0, 0)
 
 
@@ -744,7 +833,7 @@ while True:
 
                 if state != NORMAL:
                     if state == GRABBING and issubclass(type(selected), Item):
-                        actor.pickUp(selected)
+                        actor.pickUp(selected, tile_y, tile_x)
 
                     actor = None
                     state = NORMAL
