@@ -1,5 +1,7 @@
 import math
 import pygame
+import random
+import time
 
 
 # Constants
@@ -19,6 +21,12 @@ BASE_MOVEMENT_COST = 5
 INACTIVE = (240, 175, 100)
 ACTIVE = (100, 255, 100)
 DANGER = (240, 100, 100)
+
+PSYCHIC = 0
+BLUNT = PSYCHIC + 1
+PIERCING = BLUNT + 1
+RADIANT = PIERCING + 1
+NECROTIC = RADIANT + 1
 
 # Directions
 LEFT = 0
@@ -46,7 +54,7 @@ def fitTextSize(font, rect, text, inc=4):
 # Assets and asset constants
 class AssetManager:
 
-    def __init__(self, file_name='Assets.txt', extensions=".png"):
+    def __init__(self, file_name='Assets/Assets.txt', extensions=".png"):
         file = open(file_name, 'r')
 
         lines = file.read().split("\n")
@@ -82,6 +90,7 @@ class AssetManager:
         return self.highlighted[name]
 
 
+# Load assets
 ASSET_MANAGER = AssetManager()
 PLAYER_IMAGE = pygame.transform.smoothscale(pygame.image.load("Player.png"),
                                             (int(TILE_SIZE * 0.55), int(TILE_SIZE * 0.75)))
@@ -106,11 +115,63 @@ GrassLand = Terrain(1, (100, 255, 150))
 DirtRoad = Terrain(0.75, (115, 90, 75))
 
 
+# Rolls a string i.e. 1d6 -> 1 roll 1-6
+def roll(s):
+    string = str(s)
+
+    info = string.split("d")
+
+    rolls = int(eval(info[0]))
+    die = int(eval(info[1]))
+
+    current_sum = 0
+
+    for count in range(rolls):
+        current_sum += random.randint(1, die)
+
+    return current_sum
+
+
+def strToAmount(s):
+    string = str(s)
+
+    if string.__contains__("-"):
+        current_sum = 0
+
+        for line in string.split("-"):
+            current_sum += roll(line)
+
+        return current_sum
+    else:
+        return roll(string)
+
+
+OIDS = []
+OID_LOWER = 0
+OIR_RANGE = 1000
+OID_HIGHER = OID_LOWER + OIR_RANGE
+
+
+def getMyOID():
+    if len(OIDS) == 0:
+        random.seed(time.time())
+
+    newOID = random.randint(OID_LOWER, OID_HIGHER)
+
+    while OIDS.__contains__(newOID):
+        newOID = random.randint(OID_LOWER, OID_HIGHER)
+
+    OIDS.append(newOID)
+
+    return newOID
+
+
 class Object:
 
     def __init__(self, Blocking=True):
         self.selected = False
         self.blocking = Blocking
+        self.OID = getMyOID()
 
     def isBlocking(self):
         return self.blocking
@@ -152,7 +213,7 @@ class Object:
 
 class Item(Object):
 
-    def __init__(self, type_name, wg, val, name=None):
+    def __init__(self, type_name, wg, val, name=None, action="H-1d10-False"):
         super().__init__(Blocking=False)
 
         if name is not None:
@@ -163,7 +224,15 @@ class Item(Object):
         self.type = type_name
         self.weight = wg
         self.value = val
+        self.action = action
         self.inInventory = False
+        self.equipped = False
+
+    def equip(self):
+        self.equipped = True
+
+    def unequip(self):
+        self.equipped = False
 
     def getName(self):
         return self.name
@@ -178,8 +247,11 @@ class Item(Object):
 
         tiles[x][y].addContent(self)
 
+    def handleClick(self):
+        return self.action
+
     def draw(self, x, y):
-        if self.inInventory:
+        if self.inInventory and not self.equipped:
             return
 
         global screen
@@ -208,6 +280,17 @@ class Character(Object):
         self.x = pos[0]
         self.y = pos[1]
         self.items = []
+        self.equipped = []
+
+    def equip(self, index):
+        item = self.items[index]
+        item.equip()
+        self.equipped.append(item)
+
+    def unequip(self, index):
+        item = self.items[index]
+        item.unequip()
+        self.equipped.remove(item)
 
     def isSpellCaster(self):
         return self.spellCaster
@@ -307,6 +390,35 @@ class Character(Object):
         y_adjust = int((TILE_SIZE - PLAYER_HEIGHT) / 2)
 
         screen.blit(PLAYER_IMAGE, (x + x_adjust, y + y_adjust))
+
+        for item in self.equipped:
+            item.draw(x, y)
+
+    # Gets response from equipped item to see if any effect is made
+    # Responses formats will be displayed here
+    # Damage response format: D-Dice-Type-Lethal
+    #   Example: D-2d6-psychic-False
+    # Health response format: H-Dice-Temp
+    #   Example: H-8d1-False
+    # Spell response format: S-Name-Level
+    #   Example: S-WaterWall-1
+    def handleClick(self, x, y):
+        for item in self.equipped:
+            response = item.handleClick()
+            if response == "":
+                continue
+            else:
+                print(response)
+                responseInfo = response.split("-")
+
+                # Handle damage response
+                if responseInfo[0] == "D":
+                    amount = strToAmount(responseInfo[1])
+
+                # Handle health response
+                if responseInfo[0] == "H":
+                    amount = strToAmount(responseInfo[1])
+                    print(amount)
 
 
 class Tree(Object):
@@ -639,16 +751,19 @@ class ListDisplay:
                         tempItem = self.items[itemNum]
                         if self.equipped.__contains__(tempItem):
                             self.equipped.remove(tempItem)
-                            self.buttons[num][0].updateTxtColor(ACTIVE, self.font)
+                            selected.unequip(itemNum)
+                            self.buttons[num][0].updateTxtColor(INACTIVE, self.font)
                         else:
                             self.equipped.append(tempItem)
-                            self.buttons[num][0].updateTxtColor(INACTIVE, self.font)
+                            selected.equip(itemNum)
+                            self.buttons[num][0].updateTxtColor(ACTIVE, self.font)
                         return 2
                 if self.buttons[num][1].handleClick(pressed, loc):
                     itemNum = self.amountOfItemsToDisplay * self.page + num
                     if itemNum < len(self.items):
                         selected.drop(itemNum)
                         self.items = selected.getItems()
+                        self.buttons[num][0].updateTxtColor(INACTIVE, self.font)
                     return 2
 
             return 1
@@ -797,6 +912,7 @@ while True:
                     mapUpdateNeeded = True
                 elif LD_result == 2:
                     mapUpdateNeeded = True
+
             # Check for tile stuff
             else:
                 tile_x = int(camera[1] - (SCREEN_CENTER_X - HALF_TILE - mouseLocation[0]) / TILE_SIZE)
@@ -811,7 +927,10 @@ while True:
                     t = tiles[tile_y][tile_x]
                     print(tile_x, tile_y, t.x, t.y)
 
-                if selected is not None and type(selected) == Character and state == MOVING:
+                if selected is not None and type(selected) == Character:
+                    selected.handleClick(tile_y, tile_x)
+
+                elif selected is not None and type(selected) == Character and state == MOVING:
                     s_tile = tiles[tile_y][tile_x]
                     if s_tile.isHighlighted() and not s_tile.containsBlocker():
                         selected.unHighlight()
